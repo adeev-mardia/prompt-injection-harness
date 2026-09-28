@@ -14,12 +14,13 @@ from .carriers import CARRIER_DOCUMENTS
 from .detector import is_likely_injection, likely_categories
 from .generator import build_corpus
 from .payloads import PAYLOAD_LIBRARY
-from .pipelines import NaiveConcatPipeline, SanitizingPipeline
+from .pipelines import NaiveConcatPipeline, OpenAICompatibleTargetPipeline, SanitizingPipeline
 from .scorer import score_pipeline
 
 PIPELINES = {
     "naive": NaiveConcatPipeline,
     "sanitizing": SanitizingPipeline,
+    "openai": OpenAICompatibleTargetPipeline,
 }
 
 
@@ -46,12 +47,14 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
     corpus = build_corpus(PAYLOAD_LIBRARY, CARRIER_DOCUMENTS, seed=args.seed)
 
     if args.pipeline == "all":
-        names = list(PIPELINES.keys())
+        # "openai" is excluded from "all" since it makes real network calls
+        # and needs an API key/endpoint -- select it explicitly.
+        names = ["naive", "sanitizing"]
     else:
         names = [args.pipeline]
 
     for name in names:
-        pipeline = PIPELINES[name]()
+        pipeline = PIPELINES[name](model=args.model) if name == "openai" else PIPELINES[name]()
         result = score_pipeline(pipeline, corpus)
         _print_asr_table(result)
     return 0
@@ -76,8 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     bench = sub.add_parser("benchmark", help="Run the full labeled corpus through a target pipeline and print an ASR table")
-    bench.add_argument("--pipeline", choices=["naive", "sanitizing", "all"], default="all")
+    bench.add_argument("--pipeline", choices=["naive", "sanitizing", "openai", "all"], default="all")
     bench.add_argument("--seed", type=int, default=1337)
+    bench.add_argument(
+        "--model", default="gpt-4o-mini",
+        help="Model name for --pipeline openai (also reads OPENAI_API_KEY / OPENAI_BASE_URL)",
+    )
     bench.set_defaults(func=cmd_benchmark)
 
     detect = sub.add_parser("detect", help="Run the heuristic injection detector on a document file")
